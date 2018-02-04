@@ -120,11 +120,21 @@ module TeamCityFormatter
 
     def after_scenario(cuke_scenario)
       test_name = @scenario.name
-      if @exception
+
+      # status can be failed with nil exception as it seems to clear it out once reported on
+      # in terms of retries this is fine, just means its already failed so fail it again
+      # could potentially report the original failure too as its kept track of in logging
+
+      if @exception || cuke_scenario.status == :failed
         if @exception.is_a? ::Cucumber::Pending
           @logger.test_ignored(test_name, 'Pending test')
         else
-          @logger.test_failed_with_exception(test_name, @exception)
+          if @logger.retried?(cuke_scenario.name)
+            @logger.test_failed(test_name, 'Retry failed')
+          else
+            @logger.add_retry(cuke_scenario.name, @exception)
+            @logger.test_finished_with_exception(test_name, @exception)
+          end
         end
       end
       # a background step previously failed and was reported the first time the failure happened
