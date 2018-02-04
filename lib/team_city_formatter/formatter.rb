@@ -123,14 +123,13 @@ module TeamCityFormatter
 
       # status can be failed with nil exception as it seems to clear it out once reported on
       # in terms of retries this is fine, just means its already failed so fail it again
-      # could potentially report the original failure too as its kept track of in logging
 
       if @exception || cuke_scenario.status == :failed
         if @exception.is_a? ::Cucumber::Pending
           @logger.test_ignored(test_name, 'Pending test')
         else
           if @logger.retried?(cuke_scenario.name)
-            @logger.test_failed(test_name, 'Retry failed')
+            @logger.test_failed(test_name, "Retry failed: #{@logger.retried_scenarios[cuke_scenario.name]}")
           else
             @logger.add_retry(cuke_scenario.name, @exception)
             @logger.test_finished_with_exception(test_name, @exception)
