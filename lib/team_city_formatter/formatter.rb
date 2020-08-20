@@ -132,7 +132,7 @@ module TeamCityFormatter
             exception_details1 = @logger.format_exception(@logger.retried_scenarios[cuke_scenario.name])
             exception_details2 = ""
             exception_details2 = "\n\nand\n\n #{@logger.format_exception(@exception)}" if @exception
-            @logger.test_failed(test_name, "Retry failed: \n\n #{exception_details1}{exception_details2}")
+            @logger.test_failed(test_name, "Retry failed: \n\n #{exception_details1}#{exception_details2}")
           else
             @logger.add_retry(cuke_scenario.name, @exception)
             @logger.test_finished_with_exception(test_name, @exception)
