@@ -129,7 +129,8 @@ module TeamCityFormatter
           @logger.test_ignored(test_name, 'Pending test')
         else
           if @logger.retried?(cuke_scenario.name)
-            @logger.test_failed(test_name, "Retry failed: #{@logger.retried_scenarios[cuke_scenario.name]}")
+            details = @logger.format_exception(@logger.retried_scenarios[cuke_scenario.name])
+            @logger.test_failed(test_name, "Retry failed: #{details}")
           else
             @logger.add_retry(cuke_scenario.name, @exception)
             @logger.test_finished_with_exception(test_name, @exception)
