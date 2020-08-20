@@ -48,6 +48,11 @@ module TeamCityFormatter
       @retried_scenarios[test_name] = exception
     end
 
+    def format_exception(exception)
+      lines = ["#{exception.message} (#{exception.class})"] + exception.backtrace
+      lines.join("\n")
+    end
+
     private
 
     def render_output(text)
@@ -75,12 +80,7 @@ module TeamCityFormatter
       now = Time.now
       '%s.%0.3d' % [now.strftime('%Y-%m-%dT%H:%M:%S'), (now.usec / 1000)]
     end
-
-    def format_exception(exception)
-      lines = ["#{exception.message} (#{exception.class})"] + exception.backtrace
-      lines.join("\n")
-    end
-
+    
     def flow_id
       Process.pid
     end
