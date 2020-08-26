@@ -56,7 +56,7 @@ module TeamCityFormatter
 
       @errors << exception_to_be_printed if exception_to_be_printed
 
-      puts errors.map { |x| x.message} .join("\n\n and \n\n") if exception_to_be_printed && retry_attempt >= retry_count
+      @logger.test_failed_with_exceptions(event.test_case.name, errors) if exception_to_be_printed && retry_attempt >= retry_count
 
       @logger.test_finished(event.test_case.name)
     end
