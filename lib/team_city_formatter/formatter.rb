@@ -1,5 +1,7 @@
 require_relative 'logger'
 
+require 'cucumber/formatter/console_counts'
+
 module TeamCityFormatter
   class Formatter
     attr_reader :config, :options
@@ -13,17 +15,14 @@ module TeamCityFormatter
       @logger = Logger.new(config.out_stream)
       @retry_count = config.retry_attempts
 
-
-      @feature = nil
-      @exception = nil
-      @scenario = nil
-      @scenario_outline = nil
+      @counts = Cucumber::Formatter::ConsoleCounts.new(config)
 
       @errors = []
       @current_feature_uri = nil
       @current_feature_name = nil
       @previous_test_case = nil
       @retryAttempt = 0
+
       bind_events(config)
     end
 
@@ -68,6 +67,7 @@ module TeamCityFormatter
 
     def on_test_run_finished(event)
       @logger.test_suite_finished(@current_feature_name) if @current_feature_name
+      @logger.render_output(@counts.to_s)
     end
 
     private
