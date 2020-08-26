@@ -1,157 +1,86 @@
 require_relative 'logger'
-require_relative 'models'
 
 module TeamCityFormatter
   class Formatter
-    def initialize(runtime, io, options)
-      @logger = Logger.new(io)
+    attr_reader :config, :options
+    private :config, :options
+    attr_reader :current_feature_uri, :current_feature_name, :previous_test_case, :retry_attempt, :retry_count, :errors
+    private :current_feature_uri, :current_feature_name, :previous_test_case, :retry_attempt, :retry_count, :errors
+
+    def initialize(config)
+      @config = config
+      @options = config.to_hash
+      @logger = Logger.new(config.out_stream)
+      @retry_count = config.retry_attempts
+
+
       @feature = nil
       @exception = nil
       @scenario = nil
       @scenario_outline = nil
+
+      @errors = []
+      @current_feature_uri = nil
+      @current_feature_name = nil
+      @previous_test_case = nil
+      @retryAttempt = 0
+      bind_events(config)
     end
 
-    def before_feature(cuke_feature)
-      @feature = Feature.new.tap do |x|
-        x.name = "#{cuke_feature.keyword}: #{cuke_feature.name}"
+    def bind_events(config)
+      config.on_event :test_case_started, &method(:on_test_case_started)
+      config.on_event :test_case_finished, &method(:on_test_case_finished)
+      config.on_event :test_step_finished, &method(:on_test_step_finished)
+      config.on_event :test_run_finished, &method(:on_test_run_finished)
+    end
+
+    def on_test_case_started(event)
+      if !same_feature_as_previous_test_case?(event.test_case.location)
+        @logger.test_suite_finished(@current_feature_name) if @current_feature_name
+        @current_feature_uri = event.test_case.location.file
+        @current_feature_name = event.test_case.feature
+        @logger.test_suite_started(@current_feature_name)
       end
-
-      @logger.test_suite_started(@feature.name)
+      @logger.test_started(event.test_case.name)
     end
 
-    def after_feature(cuke_feature)
-      @logger.test_suite_finished(@feature.name)
-
-      @feature = nil
-    end
-
-    # this method gets called before a scenario or scenario outline
-    # we dispatch to our own more specific methods
-    def before_feature_element(cuke_feature_element)
-      if cuke_feature_element.is_a?(Cucumber::Core::Ast::Scenario)
-        before_scenario(cuke_feature_element)
-      elsif cuke_feature_element.is_a?(Cucumber::Core::Ast::ScenarioOutline)
-        before_scenario_outline(cuke_feature_element)
+    def on_test_case_finished(event)
+      if event.test_case != @previous_test_case
+        @previous_test_case = event.test_case
+        @retry_attempt = 0
+        @errors = []
       else
-        raise("unsupported feature element `#{cuke_feature_element.class.name}`")
-      end
-    end
-
-    # this method gets called after a scenario or scenario outline
-    # we dispatch to our own more specific methods
-    def after_feature_element(cuke_feature_element)
-      if cuke_feature_element.is_a?(Cucumber::Formatter::LegacyApi::Ast::Scenario)
-        after_scenario(cuke_feature_element)
-      elsif cuke_feature_element.is_a?(Cucumber::Formatter::LegacyApi::Ast::ScenarioOutline)
-        after_scenario_outline(cuke_feature_element)
-      else
-        raise("unsupported feature element `#{cuke_feature_element.class.name}`")
+        @retry_attempt = retry_attempt + 1
       end
 
-      @exception = nil
-      @scenario = nil
-      @scenario_outline = nil
+      exception_to_be_printed = find_exception_to_be_printed(event.result)
+
+      @errors << exception_to_be_printed if exception_to_be_printed
+
+      puts errors.map { |x| x.message} .join("\n\n and \n\n") if exception_to_be_printed && retry_attempt >= retry_count
+
+      @logger.test_finished(event.test_case.name)
     end
 
-    # this method is called before a scenario outline row OR step data table row
-    def before_table_row(cuke_table_row)
-      if cuke_table_row.is_a?(Cucumber::Formatter::LegacyApi::ExampleTableRow)
-        is_not_header_row = (@scenario_outline.example_column_names != cuke_table_row.values)
-        if is_not_header_row
-          example = @scenario_outline.examples.find { |example| example.column_values == cuke_table_row.values }
-          test_name = scenario_outline_test_name(@scenario_outline.name, example.column_values)
-          @logger.test_started(test_name)
-        end
-      end
+    def on_test_step_finished(event)
+      @logger.render_output event.test_step unless event.result.is_a? Cucumber::Core::Test::Result::Skipped
     end
 
-    # this method is called after a scenario outline row OR step data table row
-    def after_table_row(cuke_table_row)
-      if cuke_table_row.is_a?(Cucumber::Formatter::LegacyApi::Ast::ExampleTableRow)
-        is_not_header_row = (@scenario_outline.example_column_names != cuke_table_row.cells)
-        if is_not_header_row
-          # treat scenario-level exception as example exception
-          # the exception could have been raised in a background section
-          exception = (@exception || cuke_table_row.exception)
-          example = @scenario_outline.examples.find { |example| example.column_values == cuke_table_row.cells }
-          test_name = scenario_outline_test_name(@scenario_outline.name, example.column_values)
-          if exception
-            if exception.is_a? ::Cucumber::Pending
-              @logger.test_ignored(test_name, 'Pending test')
-            else
-              @logger.test_failed(test_name, exception)
-            end
-          end
-          @logger.test_finished(test_name)
-
-          @exception = nil
-        end
-      end
-    end
-
-    def exception(exception, status)
-      @exception = exception
+    def on_test_run_finished(event)
+      @logger.test_suite_finished(@current_feature_name) if @current_feature_name
     end
 
     private
 
-    def before_scenario(cuke_scenario)
-      @scenario = Scenario.new.tap do |x|
-        x.name = "#{cuke_scenario.keyword}: #{cuke_scenario.name}"
-      end
-      @logger.test_started(@scenario.name)
+    def same_feature_as_previous_test_case?(location)
+      location.file == current_feature_uri
     end
 
-    def before_scenario_outline(cuke_scenario_outline)
-      cuke_example_rows = cuke_scenario_outline.examples_tables.map(&:example_rows).flatten
-      @scenario_outline = ScenarioOutline.new.tap do |x|
-        x.name = "#{cuke_scenario_outline.keyword}: #{cuke_scenario_outline.name}"
-        x.example_column_names = cuke_example_rows.first.send(:data).keys
-        x.examples =
-          cuke_example_rows.map do |example_row|
-            example_row.send(:data).values
-          end.map do |example_column_values|
-            Example.new.tap do |x|
-              x.column_values = example_column_values
-            end
-          end
-      end
-    end
-
-    def after_scenario(cuke_scenario)
-      test_name = @scenario.name
-
-      # status can be failed with nil exception as it seems to clear it out once reported on
-      # in terms of retries this is fine, just means its already failed so fail it again
-
-      if @exception || cuke_scenario.status == :failed
-        if @exception.is_a? ::Cucumber::Pending
-          @logger.test_ignored(test_name, 'Pending test')
-        else
-          if @logger.retried?(cuke_scenario.name)
-            exception_details1 = @logger.format_exception(@logger.retried_scenarios[cuke_scenario.name])
-            exception_details2 = ""
-            exception_details2 = "\n\nand\n\n #{@logger.format_exception(@exception)}" if @exception
-            @logger.test_failed(test_name, "Retry failed: \n\n #{exception_details1}#{exception_details2}")
-          else
-            @logger.add_retry(cuke_scenario.name, @exception)
-            @logger.test_finished_with_exception(test_name, @exception)
-          end
-        end
-      end
-      # a background step previously failed and was reported the first time the failure happened
-      if (cuke_scenario.status == :skipped) && (@exception == nil)
-        @logger.test_failed(test_name, 'Background failure')
-      end
-      @logger.test_finished(test_name)
-    end
-
-    def after_scenario_outline(cuke_scenario_outline)
-      # do nothing
-    end
-
-    def scenario_outline_test_name(scenario_outline_name, example_column_values)
-      "#{scenario_outline_name} | #{example_column_values.join(' | ')} |"
+    def find_exception_to_be_printed(result)
+      return nil if result.ok?(options[:strict])
+      result = result.with_filtered_backtrace(Cucumber::Formatter::BacktraceFilter)
+      exception = result.failed? ? result.exception : result
+      exception
     end
   end
 end
