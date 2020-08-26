@@ -63,7 +63,7 @@ module TeamCityFormatter
     end
 
     def on_test_step_finished(event)
-      @logger.render_output event.test_step unless event.result.is_a? Cucumber::Core::Test::Result::Skipped
+      @logger.render_output("#{event.result.to_s} #{event.test_step}") unless event.result.is_a? Cucumber::Core::Test::Result::Skipped
     end
 
     def on_test_run_finished(event)
