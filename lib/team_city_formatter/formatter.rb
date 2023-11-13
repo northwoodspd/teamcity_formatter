@@ -1,5 +1,7 @@
 require_relative 'logger'
 
+require 'cucumber/formatter/ast_lookup'
+require 'cucumber/formatter/backtrace_filter'
 require 'cucumber/formatter/console_counts'
 
 module TeamCityFormatter
@@ -24,6 +26,8 @@ module TeamCityFormatter
       @retryAttempt = 0
 
       bind_events(config)
+
+      @ast_lookup = Cucumber::Formatter::AstLookup.new(config)
     end
 
     def bind_events(config)
@@ -37,7 +41,7 @@ module TeamCityFormatter
       if !same_feature_as_previous_test_case?(event.test_case.location)
         @logger.test_suite_finished(@current_feature_name) if @current_feature_name
         @current_feature_uri = event.test_case.location.file
-        @current_feature_name = event.test_case.feature
+        @current_feature_name = gherkin_document.feature.name
         @logger.test_suite_started(@current_feature_name)
       end
       @logger.test_started(event.test_case.name)
@@ -81,6 +85,10 @@ module TeamCityFormatter
       result = result.with_filtered_backtrace(Cucumber::Formatter::BacktraceFilter)
       exception = result.failed? ? result.exception : result
       exception
+    end
+
+    def gherkin_document
+      @ast_lookup.gherkin_document(current_feature_uri)
     end
   end
 end
